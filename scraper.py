@@ -1,5 +1,6 @@
 """
-Booking.com scraper for Kyoto machiya/accommodation properties.
+Booking.com property scraper.
+Pass a booking.com hotel URL; returns property info + all guest reviews.
 Uses Playwright for browser automation to handle JavaScript-heavy pages.
 """
 
@@ -11,7 +12,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 
-from playwright.async_api import async_playwright, Page, BrowserContext
+from playwright.async_api import async_playwright, Page
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -140,107 +141,6 @@ class BookingScraper:
         await asyncio.sleep(random.uniform(lo, hi))
 
     # ── public API ────────────────────────────────────────────────────────────
-
-    async def search_properties(
-        self,
-        location: str,
-        accommodation_type: str,
-        max_results: int = 5,
-    ) -> list[dict]:
-        """
-        Search booking.com for properties matching location + accommodation_type.
-        Returns a list of dicts with {name, url, rating, price, address}.
-        """
-        query = f"{location} {accommodation_type}"
-        search_url = (
-            f"{self.BASE_URL}/searchresults.html"
-            f"?ss={query.replace(' ', '+')}"
-            f"&lang=en-gb"
-            f"&checkin={self.CHECKIN}"
-            f"&checkout={self.CHECKOUT}"
-            f"&group_adults=2&no_rooms=1"
-        )
-        self._log(f"Searching: {search_url}")
-
-        results = []
-        async with async_playwright() as pw:
-            browser, context = await self._make_context(pw)
-            page = await context.new_page()
-            try:
-                await page.goto(search_url, wait_until="domcontentloaded", timeout=40000)
-                await self._human_delay(2, 3)
-                await self._dismiss_overlays(page)
-                await self._human_delay(1, 1.5)
-
-                # Wait for at least one property card
-                try:
-                    await page.wait_for_selector('[data-testid="property-card"]', timeout=15000)
-                except Exception:
-                    self._log("No property cards found — possibly blocked or no results")
-
-                cards = page.locator('[data-testid="property-card"]')
-                total = min(await cards.count(), max_results)
-                self._log(f"Found {await cards.count()} results, reading {total}")
-
-                for i in range(total):
-                    card = cards.nth(i)
-                    try:
-                        name = await self._safe_text(
-                            page if False else card,  # scope to card
-                            '[data-testid="title"]',
-                        )
-                        # Scoped helper
-                        async def card_text(*sels):
-                            for s in sels:
-                                try:
-                                    el = card.locator(s).first
-                                    if await el.count() > 0:
-                                        t = await el.text_content(timeout=2000)
-                                        if t and t.strip():
-                                            return t.strip()
-                                except Exception:
-                                    pass
-                            return ""
-
-                        name = await card_text('[data-testid="title"]')
-                        address = await card_text(
-                            '[data-testid="address"]',
-                            '.abf093bdfe',
-                            '[class*="address"]',
-                        )
-                        rating = await card_text(
-                            '[data-testid="review-score"] .ac4a7896c7',
-                            '[data-testid="review-score"] div[class*="score"]',
-                            '.b5cd09854e',
-                        )
-                        price = await card_text(
-                            '[data-testid="price-and-discounted-price"]',
-                            '[data-testid="price"]',
-                            'span[class*="price"]',
-                        )
-
-                        # Get property URL
-                        link_el = card.locator('a[data-testid="title-link"], h3 a').first
-                        href = ""
-                        try:
-                            href = await link_el.get_attribute("href", timeout=2000) or ""
-                        except Exception:
-                            pass
-
-                        if name:
-                            results.append({
-                                "name": name,
-                                "url": href if href.startswith("http") else self.BASE_URL + href,
-                                "rating": rating,
-                                "price": price,
-                                "address": address,
-                            })
-                    except Exception as e:
-                        self._log(f"Error parsing card {i}: {e}")
-            finally:
-                await browser.close()
-
-        return results
 
     async def get_property_details(self, url: str) -> PropertyData:
         """
