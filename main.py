@@ -207,7 +207,7 @@ def output_path(name: str, suffix: str) -> str:
 # Core pipeline
 # ──────────────────────────────────────────────────────────────────────────────
 
-async def run(url: str, headless: bool, verbose: bool):
+async def run(url: str, headless: bool, verbose: bool, scrape_only: bool = False):
     # 1 — Scrape
     hdr(f"Scraping  {url[:90]}{'…' if len(url) > 90 else ''}")
     scraper  = BookingScraper(headless=headless, verbose=verbose)
@@ -217,19 +217,34 @@ async def run(url: str, headless: bool, verbose: bool):
     prop      = raw_dict["property"]
     n_reviews = len(raw_dict["reviews"])
 
+    if raw_dict.get("scrape_error"):
+        warn(f"Scrape issue: {raw_dict['scrape_error']}")
+
     success(f"Property : {prop.get('name') or 'Unknown'}")
     info(f"  Address  : {prop.get('address') or '—'}")
     info(f"  Rating   : {prop.get('rating') or '—'}  {prop.get('rating_count') or ''}")
     info(f"  Price    : {prop.get('price') or '—'}")
     info(f"  Reviews  : {n_reviews} collected")
 
+    # Always save raw data — even partial results are valuable
     name     = prop.get("name") or "property"
     raw_path = output_path(name, "raw")
     save_results(raw_dict, raw_path)
     success(f"Raw data  → {raw_path}")
 
     if n_reviews == 0:
-        warn("No reviews found — skipping analysis.")
+        warn("No reviews collected — skipping analysis.")
+        if raw_dict.get("scrape_error"):
+            warn("Tip: run locally without egress restrictions, then use --reanalyze on the saved file.")
+        return
+
+    if scrape_only:
+        info("--scrape-only: skipping Claude analysis.")
+        return
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        warn("ANTHROPIC_API_KEY not set — skipping analysis.")
+        warn(f"Re-run with:  python main.py --reanalyze {raw_path}")
         return
 
     # 2 — Analyze
@@ -277,6 +292,11 @@ def main():
     )
     parser.add_argument("--verbose",     "-v", action="store_true", help="Verbose scraper logging")
     parser.add_argument("--no-headless",       action="store_true", help="Show the browser window")
+    parser.add_argument(
+        "--scrape-only", "-s",
+        action="store_true",
+        help="Scrape and save raw data only; skip Claude analysis (no API key required)",
+    )
 
     args = parser.parse_args()
 
@@ -295,15 +315,17 @@ def main():
         err("URL must start with https://www.booking.com/")
         sys.exit(1)
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        err("ANTHROPIC_API_KEY not set. Add it to .env or export it.")
-        sys.exit(1)
+    # API key is only required when analysis will actually run
+    if not args.scrape_only and not os.environ.get("ANTHROPIC_API_KEY"):
+        warn("ANTHROPIC_API_KEY not set — scraping will proceed but analysis will be skipped.")
+        warn("Tip: use --scrape-only to silence this warning, or set the key to enable analysis.")
 
     try:
         asyncio.run(run(
             url=args.url,
             headless=not args.no_headless,
             verbose=args.verbose,
+            scrape_only=args.scrape_only,
         ))
     except KeyboardInterrupt:
         warn("\nInterrupted.")

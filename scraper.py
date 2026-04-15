@@ -48,12 +48,16 @@ class Review:
 class PropertyData:
     property: PropertyInfo = field(default_factory=PropertyInfo)
     reviews: list = field(default_factory=list)
+    scrape_error: str = ""
 
     def to_dict(self):
-        return {
+        d = {
             "property": asdict(self.property),
             "reviews": [asdict(r) if isinstance(r, Review) else r for r in self.reviews],
         }
+        if self.scrape_error:
+            d["scrape_error"] = self.scrape_error
+        return d
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -158,13 +162,36 @@ class BookingScraper:
             browser, context = await self._make_context(pw)
             page = await context.new_page()
             try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=40000)
+                # Retry initial page load up to 3 times with exponential backoff
+                last_exc: Optional[Exception] = None
+                for attempt in range(3):
+                    try:
+                        await page.goto(url, wait_until="domcontentloaded", timeout=40000)
+                        last_exc = None
+                        break
+                    except Exception as e:
+                        last_exc = e
+                        self._log(f"Page load attempt {attempt + 1}/3 failed: {e}")
+                        if attempt < 2:
+                            backoff = 2 ** (attempt + 1)
+                            self._log(f"Retrying in {backoff}s...")
+                            await asyncio.sleep(backoff)
+
+                if last_exc is not None:
+                    data.scrape_error = f"Property page unreachable after 3 attempts: {last_exc}"
+                    self._log(data.scrape_error)
+                    return data
+
                 await self._human_delay(2, 3)
                 await self._dismiss_overlays(page)
                 await self._human_delay(1, 1.5)
 
                 data.property = await self._extract_property_info(page, url)
                 data.reviews = await self._extract_all_reviews(page, url)
+            except Exception as e:
+                msg = f"Scraping interrupted after collecting {len(data.reviews)} reviews: {e}"
+                self._log(msg)
+                data.scrape_error = msg
             finally:
                 await browser.close()
 
@@ -272,12 +299,27 @@ class BookingScraper:
             )
             self._log(f"Review page offset={offset}: {review_url}")
 
-            try:
-                await page.goto(review_url, wait_until="domcontentloaded", timeout=30000)
-                await self._human_delay(1.5, 2.5)
-                await self._dismiss_overlays(page)
-            except Exception as e:
-                self._log(f"Failed to load review page: {e}")
+            # Retry each review page up to 3 times with exponential backoff
+            page_loaded = False
+            for attempt in range(3):
+                try:
+                    await page.goto(review_url, wait_until="domcontentloaded", timeout=30000)
+                    await self._human_delay(1.5, 2.5)
+                    await self._dismiss_overlays(page)
+                    page_loaded = True
+                    break
+                except Exception as e:
+                    self._log(f"Review page attempt {attempt + 1}/3 failed: {e}")
+                    if attempt < 2:
+                        backoff = 2 ** (attempt + 1)
+                        self._log(f"Retrying in {backoff}s...")
+                        await asyncio.sleep(backoff)
+
+            if not page_loaded:
+                self._log(
+                    f"Review page unreachable after 3 attempts — "
+                    f"saving {len(all_reviews)} collected reviews"
+                )
                 break
 
             page_reviews = await self._parse_review_page(page)

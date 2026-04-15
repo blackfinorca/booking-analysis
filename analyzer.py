@@ -21,11 +21,10 @@ import anthropic
 # ──────────────────────────────────────────────────────────────────────────────
 
 ANALYSIS_SYSTEM_PROMPT = """You are an expert hospitality consultant helping a
-property owner in Kyoto understand what makes similar properties succeed or fail,
+property owner understand what makes their accommodation succeed or fail,
 based on guest reviews scraped from Booking.com.
 
-You will be given a batch of guest reviews for a machiya (traditional Kyoto
-townhouse) or similar accommodation. Your job is to produce a structured
+You will be given a batch of guest reviews. Your job is to produce a structured
 analysis in JSON that will help the owner improve their own operations.
 
 Return ONLY valid JSON — no markdown fences, no prose outside the JSON.
