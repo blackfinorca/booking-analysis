@@ -99,7 +99,7 @@ class ReviewAnalyzer:
     """Analyzes Booking.com reviews using Claude."""
 
     MODEL = "claude-sonnet-4-6"
-    MAX_TOKENS = 4096
+    MAX_TOKENS = 8192
 
     # Booking.com reviews are typically short; we can fit many in one call.
     # At ~200 chars/review, 200 reviews ≈ 40 k chars — well within context.
@@ -107,12 +107,16 @@ class ReviewAnalyzer:
 
     def __init__(self, api_key: Optional[str] = None):
         key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if not key:
+        auth_token = os.environ.get("ANTHROPIC_AUTH_TOKEN")
+        if auth_token:
+            self.client = anthropic.Anthropic(auth_token=auth_token)
+        elif key:
+            self.client = anthropic.Anthropic(api_key=key)
+        else:
             raise ValueError(
                 "ANTHROPIC_API_KEY is not set. "
                 "Export it or put it in a .env file."
             )
-        self.client = anthropic.Anthropic(api_key=key)
 
     # ── formatting helpers ────────────────────────────────────────────────────
 

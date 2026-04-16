@@ -281,7 +281,7 @@ def main():
     args = parser.parse_args()
 
     if args.reanalyze:
-        if not os.environ.get("ANTHROPIC_API_KEY"):
+        if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("ANTHROPIC_AUTH_TOKEN"):
             err("ANTHROPIC_API_KEY not set. Add it to .env or export it.")
             sys.exit(1)
         reanalyze(args.reanalyze)
@@ -295,7 +295,7 @@ def main():
         err("URL must start with https://www.booking.com/")
         sys.exit(1)
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("ANTHROPIC_AUTH_TOKEN"):
         err("ANTHROPIC_API_KEY not set. Add it to .env or export it.")
         sys.exit(1)
 

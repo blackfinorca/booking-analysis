@@ -80,7 +80,7 @@ class BookingScraper:
     async def _make_context(self, playwright) -> tuple:
         browser = await playwright.chromium.launch(
             headless=self.headless,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled", "--ignore-certificate-errors"],
         )
         context = await browser.new_context(
             viewport={"width": 1440, "height": 900},
